@@ -1,0 +1,1351 @@
+
+document.addEventListener('DOMContentLoaded', () => {
+
+// =================================================================================
+// STATE MANAGEMENT & MOCK DATA
+// =================================================================================
+
+const TaskStatus = { ToDo: "To-Do", InProgress: "In Progress", Done: "Done" };
+const TaskPriority = { Low: "Low", Medium: "Medium", High: "High" };
+
+const USERS_STORAGE_KEY = 'kolabora_offline_users';
+const PROJECTS_STORAGE_KEY = 'kolabora_offline_projects';
+
+// Default mock data for the very first run
+const MOCK_USERS = [
+    { id: 'u1', name: 'Budi Hartono', nim: '12345', email: 'budi@test.com', password: 'password', avatar: 'https://i.pravatar.cc/150?u=u1' },
+    { id: 'u2', name: 'Siti Aminah', nim: '23456', email: 'siti@test.com', password: 'password', avatar: 'https://i.pravatar.cc/150?u=u2' },
+    { id: 'u3', name: 'Ahmad Fauzi', nim: '34567', email: 'ahmad@test.com', password: 'password', avatar: 'https://i.pravatar.cc/150?u=u3' },
+    { id: 'u4', name: 'Dewi Lestari', nim: '45678', email: 'dewi@test.com', password: 'password', avatar: 'https://i.pravatar.cc/150?u=u4' },
+];
+
+const MOCK_PROJECTS = [
+  {
+    id: 'p1', courseName: 'Pemrograman Web Lanjutan', taskTitle: 'Membangun Aplikasi E-commerce',
+    description: 'Proyek akhir semester untuk membangun aplikasi e-commerce full-stack dengan React dan Node.js.',
+    mainDeadline: new Date(new Date().setDate(new Date().getDate() + 30)).toISOString(),
+    inviteCode: 'WEBDEV123', adminId: 'u1',
+    members: MOCK_USERS,
+    tasks: [
+        { id: 't1', title: 'Desain UI/UX Mockup', description: 'Membuat mockup di Figma', assigneeId: 'u2', dueDate: new Date(new Date().setDate(new Date().getDate() + 5)).toISOString().split('T')[0], status: TaskStatus.Done, priority: TaskPriority.High },
+        { id: 't2', title: 'Setup Frontend Project', description: 'Inisialisasi project React dengan TypeScript', assigneeId: 'u1', dueDate: new Date(new Date().setDate(new Date().getDate() + 2)).toISOString().split('T')[0], status: TaskStatus.InProgress, priority: TaskPriority.High },
+        { id: 't3', title: 'Buat API Endpoint Produk', description: 'Endpoint CRUD untuk produk', assigneeId: null, dueDate: new Date(new Date().setDate(new Date().getDate() + 7)).toISOString().split('T')[0], status: TaskStatus.ToDo, priority: TaskPriority.Medium },
+        { id: 't4', title: 'Implementasi Halaman Utama', description: 'Coding halaman utama sesuai desain', assigneeId: null, dueDate: new Date(new Date().setDate(new Date().getDate() + 10)).toISOString().split('T')[0], status: TaskStatus.ToDo, priority: TaskPriority.Low },
+    ],
+    chat: [
+        { id: 'c1', userId: 'u2', text: 'Mockup awal sudah selesai, teman-teman. Silakan dicek di folder file ya.', timestamp: new Date(new Date().getTime() - 86400000).toISOString() },
+        { id: 'c2', userId: 'u1', text: 'Keren, @Siti! Saya mulai setup project frontendnya ya.', timestamp: new Date(new Date().getTime() - 86000000).toISOString() },
+    ],
+    files: [
+        { id: 'f1', name: 'Dokumen Spesifikasi.pdf', type: 'pdf', size: '1.2 MB', uploadedBy: 'u1', uploadDate: new Date(new Date().getTime() - 172800000).toISOString() },
+        { id: 'f2', name: 'Mockup Final.png', type: 'png', size: '3.4 MB', uploadedBy: 'u2', uploadDate: new Date(new Date().getTime() - 86400000).toISOString() },
+        { id: 'f3', name: 'Catatan Rapat.docx', type: 'docx', size: '256 KB', uploadedBy: 'u3', uploadDate: new Date(new Date().getTime() - 86400000).toISOString() },
+    ]
+  },
+  {
+    id: 'p2', courseName: 'Kecerdasan Buatan', taskTitle: 'Analisis Sentimen Twitter',
+    description: 'Menganalisis sentimen publik terhadap topik tertentu menggunakan data dari Twitter.',
+    mainDeadline: new Date(new Date().setDate(new Date().getDate() + 12)).toISOString(),
+    inviteCode: 'AI-NLP456', adminId: 'u3',
+    members: [ MOCK_USERS[0], MOCK_USERS[2], MOCK_USERS[3] ],
+    tasks: [
+      { id: 't5', title: 'Pengumpulan Data Tweet', description: 'Menggunakan API Twitter', assigneeId: 'u4', dueDate: new Date(new Date().setDate(new Date().getDate() + 5)).toISOString().split('T')[0], status: TaskStatus.InProgress, priority: TaskPriority.High },
+      { id: 't6', title: 'Preprocessing Teks', description: 'Pembersihan dan normalisasi data teks', assigneeId: null, dueDate: new Date(new Date().setDate(new Date().getDate() + 8)).toISOString().split('T')[0], status: TaskStatus.ToDo, priority: TaskPriority.Medium },
+    ],
+    chat: [],
+    files: []
+  },
+];
+
+
+const loadFromStorage = (key, fallback) => {
+    try {
+        const stored = localStorage.getItem(key);
+        if (stored) {
+            return JSON.parse(stored);
+        }
+        localStorage.setItem(key, JSON.stringify(fallback));
+        return fallback;
+    } catch (error) {
+        console.error(`Error loading ${key} from localStorage:`, error);
+        return fallback;
+    }
+};
+
+const saveToStorage = (key, data) => {
+    try {
+        localStorage.setItem(key, JSON.stringify(data));
+    } catch (error) {
+        console.error(`Error saving ${key} to localStorage:`, error);
+    }
+}
+
+
+let state = {
+    projects: loadFromStorage(PROJECTS_STORAGE_KEY, MOCK_PROJECTS),
+    allUsers: loadFromStorage(USERS_STORAGE_KEY, MOCK_USERS),
+    selectedProjectId: null,
+    currentProjectView: 'dashboard', // To track the active view within a project
+    isDarkMode: false,
+    currentUser: null,
+    authView: 'login', // 'login' or 'register'
+    authMessage: null, // { type: 'success' | 'error', text: '...' }
+    modal: null, 
+    modalData: {},
+};
+
+const appContainer = document.getElementById('app-container');
+
+// =================================================================================
+// HELPER FUNCTIONS
+// =================================================================================
+
+const formatDate = (dateString) => {
+    const date = new Date(dateString);
+    if (!dateString.includes('T')) {
+        date.setMinutes(date.getMinutes() + date.getTimezoneOffset());
+    }
+    return date.toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
+};
+
+const daysLeft = (dateString, returnNumeric = false) => {
+    const safeDateString = dateString.includes('T') ? dateString : `${dateString}T00:00:00`;
+    const diff = new Date(safeDateString).setHours(0,0,0,0) - new Date().setHours(0,0,0,0);
+    const days = Math.ceil(diff / (1000 * 3600 * 24));
+    if (returnNumeric) return days;
+    if (days < 0) return 'Terlewat';
+    if (days === 0) return 'Hari ini';
+    if (days === 1) return 'Besok';
+    return `${days} hari lagi`;
+};
+
+const getFileIconName = (type) => {
+    switch (type) {
+        case 'pdf': return 'file-pdf';
+        case 'png': return 'file-image';
+        case 'docx': return 'file-doc';
+        case 'folder': return 'files';
+        default: return 'file-doc';
+    }
+};
+
+const getUserMap = () => new Map(state.allUsers.map(u => [u.id, u]));
+
+// =================================================================================
+// ICONS (as HTML strings)
+// =================================================================================
+
+const Icon = (name, className = "w-6 h-6") => {
+    const icons = {
+        dashboard: `<path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25zM13.5 6a2.25 2.25 0 012.25-2.25H18A2.25 2.25 0 0120.25 6v2.25A2.25 2.25 0 0118 10.5h-2.25a2.25 2.25 0 01-2.25-2.25V6zM13.5 15.75a2.25 2.25 0 012.25-2.25H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-2.25A2.25 2.25 0 0113.5 18v-2.25z" />`,
+        tasks: `<path stroke-linecap="round" stroke-linejoin="round" d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 002.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 00-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 00.75-.75c0-.231-.035-.454-.1-.664M6.75 7.5h.75v.75h-.75V7.5zM6.75 10.5h.75v.75h-.75v-.75zM6.75 13.5h.75v.75h-.75v-.75zM6.75 16.5h.75v.75h-.75v-.75zM4.5 6.108c0-1.135.845-2.098 1.976-2.192a48.424 48.424 0 011.123-.08M5.25 8.25h.008v.008H5.25zM5.25 11.25h.008v.008H5.25zM5.25 14.25h.008v.008H5.25zM5.25 17.25h.008v.008H5.25z" />`,
+        chat: `<path stroke-linecap="round" stroke-linejoin="round" d="M21 11.25c0-4.556-3.694-8.25-8.25-8.25S4.5 6.694 4.5 11.25s3.694 8.25 8.25 8.25c.828 0 1.626-.123 2.375-.352L18.75 21l-1.35-2.43a8.203 8.203 0 001.6-4.32z" />`,
+        files: `<path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12.75V12A2.25 2.25 0 014.5 9.75h15A2.25 2.25 0 0121.75 12v.75m-8.69-6.44l-2.12-2.12a1.5 1.5 0 00-1.061-.44H4.5A2.25 2.25 0 002.25 6v12a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9a2.25 2.25 0 00-2.25-2.25h-5.379a1.5 1.5 0 01-1.06-.44z" />`,
+        calendar: `<path stroke-linecap="round" stroke-linejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0h18M12 12.75h.008v.008H12v-.008z" />`,
+        plus: `<path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />`,
+        logout: `<path stroke-linecap="round" stroke-linejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15m3 0l3-3m0 0l-3-3m3 3H9" />`,
+        clipboard: `<path stroke-linecap="round" stroke-linejoin="round" d="M15.666 3.888A2.25 2.25 0 0013.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612 0 .662-.538 1.2-1.2 1.2h-3c-.662 0-1.2-.538-1.2-1.2 0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 01-2.25 2.25H6.75A2.25 2.25 0 014.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 011.927-.184" />`,
+        close: `<path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />`,
+        ellipsis: `<path stroke-linecap="round" stroke-linejoin="round" d="M12 6.75a.75.75 0 110-1.5.75.75 0 010 1.5zM12 12.75a.75.75 0 110-1.5.75.75 0 010 1.5zM12 18.75a.75.75 0 110-1.5.75.75 0 010 1.5z" />`,
+        user: `<path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />`,
+        cog: `<path stroke-linecap="round" stroke-linejoin="round" d="M9.594 3.94c.09-.542.56-1.003 1.11-1.226.554-.223 1.19-.223 1.745 0 .55.223 1.02.684 1.11 1.226l.082.499a.953.953 0 001.32.796l.462-.202c.516-.224 1.114-.046 1.488.42l.049.062c.41.482.496 1.14.224 1.656l-.202.462a.953.953 0 00.796 1.32l.499.082c.542.09.997.554 1.226 1.11.223.554.223 1.19 0 1.745-.223.555-.684 1.02-1.226 1.11l-.499.082a.953.953 0 00-.796 1.32l.202.462c.273.516.192 1.174-.224 1.656l-.049.062c-.374.466-.972.644-1.488.42l-.462-.202a.953.953 0 00-1.32.796l-.082.499c-.09.542-.56 1.003-1.11 1.226-.554-.223-1.19-.223-1.745 0-.55-.223-1.02-.684-1.11-1.226l-.082-.499a.953.953 0 00-1.32-.796l-.462.202c-.516-.224-1.114-.046-1.488-.42l-.049-.062c-.41-.482-.496-1.14-.224-1.656l.202.462a.953.953 0 00-.796-1.32l-.499-.082c-.542-.09-.997-.554-1.226-1.11-.223-.554-.223-1.19 0 1.745.223-.555.684 1.02 1.226-1.11l.499-.082a.953.953 0 00.796-1.32l-.202-.462c-.273-.516-.192-1.174.224-1.656l.049-.062c.374-.466.972-.644-1.488-.42l.462.202a.953.953 0 001.32-.796l.082-.499z" /><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />`,
+        check: `<path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" />`,
+        'arrow-uturn-left': `<path stroke-linecap="round" stroke-linejoin="round" d="M9 15L3 9m0 0l6-6M3 9h12a6 6 0 010 12h-3" />`,
+        'file-pdf': `<path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />`,
+        'file-doc': `<path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />`,
+        'file-image': `<path stroke-linecap="round" stroke-linejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 001.5-1.5V6a1.5 1.5 0 00-1.5-1.5H3.75A1.5 1.5 0 002.25 6v12a1.5 1.5 0 001.5 1.5zm10.5-11.25h.008v.008h-.008V8.25zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" />`,
+        'chevron-left': `<path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />`,
+        'chevron-right': `<path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />`,
+    };
+    return `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="${className}">${icons[name] || ''}</svg>`;
+};
+
+// =================================================================================
+// RENDER FUNCTIONS / "COMPONENTS"
+// =================================================================================
+
+function renderAuthScreen() {
+    const { authView, authMessage } = state;
+    const isLoginView = authView === 'login';
+
+    let messageHtml = '';
+    if (authMessage) {
+        const messageColor = authMessage.type === 'success' ? 'green' : 'red';
+        messageHtml = `<div class="bg-${messageColor}-100 dark:bg-${messageColor}-900/50 border-l-4 border-${messageColor}-500 text-${messageColor}-700 dark:text-${messageColor}-300 p-3 rounded-md mb-4 text-sm font-medium">${authMessage.text}</div>`;
+    }
+
+    return `
+        <div id="auth-screen" class="min-h-screen bg-slate-100 dark:bg-slate-950 flex flex-col justify-center items-center p-4">
+            <div class="w-full max-w-md">
+                 <div class="text-center mb-8">
+                     <h1 class="text-4xl font-bold text-primary-600 dark:text-primary-400">Kolabora</h1>
+                     <p class="text-slate-500 dark:text-slate-400 mt-2">Manajemen Proyek untuk Mahasiswa</p>
+                 </div>
+                <div class="bg-white dark:bg-slate-800 shadow-xl rounded-xl p-8">
+                    <h2 id="auth-title" class="text-2xl font-bold text-slate-800 dark:text-slate-100 text-center mb-6">${isLoginView ? 'Selamat Datang Kembali' : 'Buat Akun Baru'}</h2>
+                    <div id="auth-messages">${messageHtml}</div>
+                    <form id="auth-form" data-action="auth-form" data-view="${authView}" class="space-y-4">
+                        <div id="register-fields" class="${isLoginView ? 'hidden' : ''} space-y-4">
+                            <div>
+                                <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1" for="name">Nama Lengkap</label>
+                                <input id="name" name="name" type="text" ${!isLoginView ? 'required' : ''} class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 text-slate-900 dark:text-slate-100 border border-slate-300 dark:border-slate-600 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500" />
+                            </div>
+                             <div>
+                                <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1" for="email">Email</label>
+                                <input id="email" name="email" type="email" ${!isLoginView ? 'required' : ''} class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 text-slate-900 dark:text-slate-100 border border-slate-300 dark:border-slate-600 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500" />
+                            </div>
+                        </div>
+                         <div>
+                            <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1" for="nim">NIM (Nomor Induk Mahasiswa)</label>
+                            <input id="nim" name="nim" type="text" required class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 text-slate-900 dark:text-slate-100 border border-slate-300 dark:border-slate-600 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500" />
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1" for="password">Password</label>
+                            <input id="password" name="password" type="password" required class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 text-slate-900 dark:text-slate-100 border border-slate-300 dark:border-slate-600 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500" />
+                        </div>
+                        <button type="submit" id="auth-submit-btn" class="w-full bg-primary-600 text-white font-bold py-2 px-4 rounded-md hover:bg-primary-700 transition-colors duration-200">${isLoginView ? 'Masuk' : 'Daftar'}</button>
+                    </form>
+                    <p class="text-center text-sm text-slate-500 dark:text-slate-400 mt-6">
+                        <span id="auth-toggle-text">${isLoginView ? "Belum punya akun? " : "Sudah punya akun? "}</span>
+                        <button data-action="toggle-auth-view" class="font-semibold text-primary-600 hover:text-primary-500" id="auth-toggle-btn">${isLoginView ? "Daftar di sini" : "Masuk di sini"}</button>
+                    </p>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+function renderHeader() {
+    const { currentUser } = state;
+    if (!currentUser) return '';
+    return `
+        <header id="app-header" class="bg-white/70 dark:bg-slate-950/70 backdrop-blur-lg sticky top-0 z-20 shadow-sm">
+            <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                <div class="flex items-center justify-between h-16">
+                    <div class="flex items-center">
+                        ${state.selectedProjectId ? `
+                             <button data-action="back-to-dashboard" class="mr-4 text-slate-500 hover:text-primary-600 dark:text-slate-400 dark:hover:text-primary-400 transition-colors">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7" />
+                                </svg>
+                             </button>
+                        ` : ''}
+                        <h1 class="text-2xl font-bold text-primary-600 dark:text-primary-400">Kolabora</h1>
+                    </div>
+                    <div class="flex items-center space-x-2 sm:space-x-4">
+                        <div class="relative">
+                            <button data-action="toggle-user-menu" class="flex items-center space-x-2 p-1 rounded-full hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors">
+                                <img class="w-10 h-10 rounded-full" src="${currentUser.avatar}" alt="${currentUser.name}" />
+                                <span class="hidden sm:block text-slate-700 dark:text-slate-300 font-medium">${currentUser.name}</span>
+                            </button>
+                            <div id="user-menu" class="hidden absolute right-0 mt-2 w-48 bg-white dark:bg-slate-800 rounded-md shadow-lg ring-1 ring-black ring-opacity-5 py-1">
+                                <button data-action="open-modal" data-modal="profile" class="w-full text-left flex items-center px-4 py-2 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-600">
+                                    ${Icon('user', 'w-5 h-5 mr-3')} Profil Saya
+                                </button>
+                                <button data-action="open-modal" data-modal="settings" class="w-full text-left flex items-center px-4 py-2 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-600">
+                                    ${Icon('cog', 'w-5 h-5 mr-3')} Pengaturan
+                                </button>
+                                <div class="border-t border-slate-200 dark:border-slate-700 my-1"></div>
+                                <button data-action="logout" class="w-full text-left flex items-center px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-slate-100 dark:hover:bg-slate-600">
+                                    ${Icon('logout', 'w-5 h-5 mr-3')} Keluar
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </header>
+    `;
+}
+
+function renderProjectCard(project) {
+    const { currentUser } = state;
+    const completedTasks = project.tasks.filter(t => t.status === TaskStatus.Done).length;
+    const progress = project.tasks.length > 0 ? (completedTasks / project.tasks.length) * 100 : 0;
+    const isUserAdmin = project.adminId === currentUser.id;
+
+    const daysRemaining = daysLeft(project.mainDeadline, true);
+    let borderColor = 'border-primary-500';
+    let textColor = 'text-primary-500';
+    if (daysRemaining < 7) {
+        borderColor = 'border-red-500';
+        textColor = 'text-red-500';
+    } else if (daysRemaining < 14) {
+        borderColor = 'border-amber-500';
+        textColor = 'text-amber-500';
+    }
+
+    return `
+        <div class="bg-white dark:bg-slate-800 rounded-xl shadow-lg overflow-hidden hover:shadow-xl hover:-translate-y-1 transition-all relative border-t-4 ${borderColor}">
+            ${isUserAdmin ? `
+                <div class="absolute top-3 right-3 z-10">
+                    <button data-action="toggle-project-menu" data-project-id="${project.id}" class="p-2 rounded-full text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700">
+                        ${Icon('ellipsis', 'w-5 h-5')}
+                    </button>
+                    <div id="project-menu-${project.id}" class="hidden absolute right-0 mt-2 w-40 bg-white dark:bg-slate-700 rounded-md shadow-lg ring-1 ring-black ring-opacity-5">
+                        <div class="py-1">
+                            <button data-action="open-modal" data-modal="editProject" data-project-id="${project.id}" class="w-full text-left block px-4 py-2 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-600">
+                                Edit Proyek
+                            </button>
+                            <button data-action="open-modal" data-modal="deleteProject" data-project-id="${project.id}" class="w-full text-left block px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-slate-100 dark:hover:bg-slate-600">
+                                Hapus Proyek
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            ` : ''}
+            <div data-action="select-project" data-project-id="${project.id}" class="p-6 cursor-pointer">
+                <div class="uppercase tracking-wide text-sm text-primary-500 dark:text-primary-400 font-semibold">${project.courseName}</div>
+                <h2 class="block mt-1 text-lg leading-tight font-bold text-slate-900 dark:text-white">${project.taskTitle}</h2>
+                <p class="mt-2 text-slate-500 dark:text-slate-400 h-10">${project.description}</p>
+                <div class="mt-4">
+                    <div class="flex justify-between items-center text-sm text-slate-600 dark:text-slate-300">
+                        <span>Progress</span>
+                        <span>${Math.round(progress)}%</span>
+                    </div>
+                    <div class="w-full bg-slate-200 dark:bg-slate-700 rounded-full h-2.5 mt-1">
+                        <div class="bg-primary-600 h-2.5 rounded-full transition-all duration-500" style="width: ${progress}%;"></div>
+                    </div>
+                </div>
+                <div class="mt-6 flex justify-between items-end">
+                     <div class="flex -space-x-3 overflow-hidden">
+                        ${project.members.slice(0, 4).map(member => `
+                            <img key="${member.id}" class="inline-block h-10 w-10 rounded-full ring-2 ring-white dark:ring-slate-800" src="${member.avatar}" alt="${member.name}" title="${member.name}" />
+                        `).join('')}
+                        ${project.members.length > 4 ? `
+                             <div class="flex items-center justify-center h-10 w-10 rounded-full bg-slate-200 dark:bg-slate-700 text-xs font-medium text-slate-600 dark:text-slate-300 ring-2 ring-white dark:ring-slate-800">
+                                +${project.members.length - 4}
+                            </div>
+                        ` : ''}
+                    </div>
+                     <div class="text-sm font-bold ${textColor}">
+                        <span class='block text-right'>${daysLeft(project.mainDeadline)}</span>
+                        <span class='block text-xs font-medium text-slate-500 dark:text-slate-400 text-right'>Deadline</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+function renderDashboardScreen() {
+    const { currentUser, projects } = state;
+    const userProjects = projects.filter(p => p.members.some(m => m.id === currentUser.id));
+    return `
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+            <div class="mb-8">
+                <h2 class="text-2xl text-slate-600 dark:text-slate-400">Selamat datang kembali,</h2>
+                <h1 class="text-4xl font-bold text-slate-800 dark:text-slate-100">${currentUser.name}!</h1>
+            </div>
+            <div class="flex justify-between items-center mb-6">
+                <h2 class="text-3xl font-bold text-slate-800 dark:text-slate-100">Proyek Anda</h2>
+                <div class="flex space-x-2">
+                     <button data-action="open-modal" data-modal="joinProject" class="bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-200 font-semibold py-2 px-4 border border-slate-300 dark:border-slate-600 rounded-lg shadow-sm hover:bg-slate-50 dark:hover:bg-slate-600 transition-colors">
+                        Gabung Proyek
+                    </button>
+                    <button data-action="open-modal" data-modal="createProject" class="bg-primary-600 text-white font-semibold py-2 px-4 rounded-lg shadow-md hover:bg-primary-700 transition-colors flex items-center">
+                        ${Icon('plus', 'w-5 h-5 mr-2')}
+                        Buat Proyek
+                    </button>
+                </div>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                ${userProjects.map(renderProjectCard).join('')}
+            </div>
+        </div>
+    `;
+}
+
+function renderProjectScreen(project) {
+    const activeView = state.currentProjectView;
+    let viewContent = '';
+    switch(activeView) {
+        case 'dashboard': viewContent = renderProjectDashboardView(project); break;
+        case 'tasks': viewContent = renderTaskBoard(project); break;
+        case 'chat': viewContent = renderChatRoom(project); break;
+        case 'files': viewContent = renderFileStorage(project); break;
+        case 'calendar': viewContent = renderTeamCalendar(project); break;
+        default: viewContent = renderProjectDashboardView(project);
+    }
+
+    return `
+        <div id="project-screen" data-active-view="${activeView}" class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 flex flex-col md:flex-row md:space-x-8">
+            ${renderProjectNav(activeView)}
+            <div id="project-view-content" class="flex-1 mt-6 md:mt-0">
+                ${viewContent}
+            </div>
+        </div>
+    `;
+}
+
+function renderProjectNav(activeView) {
+    const navItems = [
+        { id: 'dashboard', name: 'Dasbor', icon: 'dashboard' },
+        { id: 'tasks', name: 'Papan Tugas', icon: 'tasks' },
+        { id: 'chat', name: 'Ruang Diskusi', icon: 'chat' },
+        { id: 'files', name: 'Penyimpanan Berkas', icon: 'files' },
+        { id: 'calendar', name: 'Kalender Tim', icon: 'calendar' },
+    ];
+    return `
+        <nav class="w-full md:w-64 flex-shrink-0">
+            <div class="sticky top-24">
+                 <ul class="flex space-x-2 md:space-x-0 md:space-y-2 overflow-x-auto md:flex-col pb-2">
+                    ${navItems.map(item => `
+                        <li>
+                            <a href="#" data-action="set-project-view" data-view="${item.id}"
+                               class="flex-shrink-0 flex items-center px-4 py-2.5 text-sm font-medium rounded-lg transition-colors ${activeView === item.id ? 'bg-primary-100 dark:bg-primary-900/50 text-primary-700 dark:text-primary-300' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'}">
+                                ${Icon(item.icon, 'w-5 h-5 mr-3')}
+                                ${item.name}
+                            </a>
+                        </li>
+                    `).join('')}
+                </ul>
+            </div>
+        </nav>
+    `;
+}
+
+function renderProjectDashboardView(project) {
+    const userMap = getUserMap();
+    const upcomingTasks = project.tasks
+        .filter(t => t.status !== TaskStatus.Done)
+        .sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime())
+        .slice(0, 5);
+        
+    return `
+        <div>
+            <h2 class="text-3xl font-bold text-slate-800 dark:text-slate-100">${project.taskTitle}</h2>
+            <p class="text-slate-500 dark:text-slate-400 mt-1">${project.courseName}</p>
+            <div class="mt-6 grid grid-cols-1 md:grid-cols-3 gap-6">
+                 <div class="bg-white dark:bg-slate-800 p-5 rounded-lg shadow">
+                    <h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100">Deadline Utama</h3>
+                    <p class="text-2xl font-bold text-red-500 mt-2">${formatDate(project.mainDeadline)}</p>
+                    <p class="text-slate-500 dark:text-slate-400">${daysLeft(project.mainDeadline)}</p>
+                </div>
+                 <div class="bg-white dark:bg-slate-800 p-5 rounded-lg shadow">
+                    <h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100">Anggota Tim</h3>
+                    <div class="flex flex-wrap gap-2 mt-3">
+                        ${project.members.map(member => `
+                            <div class="flex items-center space-x-2 bg-slate-100 dark:bg-slate-700 rounded-full p-1 pr-3">
+                                <img src="${member.avatar}" alt="${member.name}" class="w-7 h-7 rounded-full" />
+                                <span class="text-sm font-medium text-slate-700 dark:text-slate-200">
+                                    ${member.name}
+                                    ${member.id === project.adminId ? `<span class="text-xs text-primary-600 dark:text-primary-400 ml-1.5 font-semibold">(Pemilik)</span>` : ''}
+                                </span>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+                <div class="bg-white dark:bg-slate-800 p-5 rounded-lg shadow">
+                    <h3 class="text-lg font-semibold text-slate-800 dark:text-slate-100">Notifikasi</h3>
+                    <ul class="mt-2 space-y-2 text-sm text-slate-600 dark:text-slate-300">
+                        <li>Siti Aminah menyelesaikan tugas "Desain UI/UX Mockup".</li>
+                        <li>Budi Hartono mulai mengerjakan "Setup Frontend Project".</li>
+                    </ul>
+                </div>
+            </div>
+            <div class="mt-8 bg-white dark:bg-slate-800 p-5 rounded-lg shadow">
+                <h3 class="text-xl font-bold text-slate-800 dark:text-slate-100 mb-4">Tugas Mendekati Deadline</h3>
+                <ul class="space-y-3">
+                    ${upcomingTasks.length ? upcomingTasks.map(task => `
+                        <li class="flex justify-between items-center p-3 bg-slate-50 dark:bg-slate-700/50 rounded-md">
+                            <div>
+                                <p class="font-semibold text-slate-800 dark:text-slate-200">${task.title}</p>
+                                <p class="text-sm text-slate-500 dark:text-slate-400">
+                                    Ditugaskan kepada ${task.assigneeId ? userMap.get(task.assigneeId)?.name : 'Belum ada'}
+                                </p>
+                            </div>
+                            <div class="text-right">
+                                <p class="font-semibold text-red-500">${formatDate(task.dueDate)}</p>
+                                <p class="text-sm text-slate-500 dark:text-slate-400">${daysLeft(task.dueDate)}</p>
+                            </div>
+                        </li>
+                    `).join('') : '<p class="text-slate-500 dark:text-slate-400 text-center py-4">Tidak ada tugas yang mendekati deadline.</p>'}
+                </ul>
+            </div>
+        </div>
+    `;
+}
+
+function renderTaskBoard(project) {
+    const userMap = getUserMap();
+    const columns = {
+        [TaskStatus.ToDo]: project.tasks.filter(t => t.status === TaskStatus.ToDo).sort((a,b) => b.priority.localeCompare(a.priority)),
+        [TaskStatus.InProgress]: project.tasks.filter(t => t.status === TaskStatus.InProgress),
+        [TaskStatus.Done]: project.tasks.filter(t => t.status === TaskStatus.Done),
+    };
+
+    return `
+        <div>
+            <div class="flex justify-between items-center mb-6">
+                <h2 class="text-3xl font-bold text-slate-800 dark:text-slate-100">Papan Tugas</h2>
+                <button data-action="open-modal" data-modal="addTask" class="bg-primary-600 text-white font-semibold py-2 px-4 rounded-lg shadow-md hover:bg-primary-700 transition-colors flex items-center">
+                    ${Icon('plus', 'w-5 h-5 mr-2')}
+                    Tambah Tugas
+                </button>
+            </div>
+            <div class="flex flex-col md:flex-row space-y-4 md:space-y-0 md:space-x-4">
+                ${Object.keys(columns).map(status => renderTaskColumn(status, columns[status], project)).join('')}
+            </div>
+        </div>
+    `;
+}
+
+function renderTaskColumn(title, tasks, project) {
+    const { currentUser } = state;
+    const userMap = getUserMap();
+    const isUserAdmin = currentUser.id === project.adminId;
+
+    return `
+        <div class="bg-slate-100 dark:bg-slate-900/70 rounded-xl p-3 w-full md:w-80 flex-shrink-0">
+            <h3 class="font-bold text-lg text-slate-700 dark:text-slate-200 mb-4 px-2 flex justify-between items-center">
+                <span>${title}</span>
+                <span class="text-sm bg-slate-300 dark:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-full px-2.5 py-0.5">${tasks.length}</span>
+            </h3>
+            <div class="space-y-3 h-[calc(100vh-22rem)] overflow-y-auto pr-2 custom-scrollbar">
+                ${tasks.map(task => `
+                    <div class="group">
+                        ${renderTaskCard(task, userMap.get(task.assigneeId))}
+                        
+                        ${title === TaskStatus.ToDo ? `
+                            <div class="mt-2 text-sm">
+                                ${isUserAdmin ? `
+                                    <div class="flex items-center space-x-2">
+                                        <select data-task-id="${task.id}" class="task-assignee-select block w-full text-xs rounded-md border-slate-300 dark:border-slate-600 shadow-sm focus:border-primary-500 focus:ring-primary-500 bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100 p-2">
+                                            ${project.members.map(member => `<option value="${member.id}" ${task.assigneeId === member.id ? 'selected' : ''}>${member.name}</option>`).join('')}
+                                        </select>
+                                        <button data-action="assign-task" data-task-id="${task.id}" class="flex-shrink-0 text-xs font-semibold bg-slate-600 text-white hover:bg-slate-700 dark:bg-slate-500 dark:hover:bg-slate-400 px-3 py-2 rounded-md transition-colors">
+                                            ${task.assigneeId ? "Ubah" : "Tugas"}
+                                        </button>
+                                    </div>
+                                ` : `
+                                    ${!task.assigneeId ? `
+                                        <button data-action="assign-task-self" data-task-id="${task.id}" class="w-full text-xs font-semibold bg-primary-600 text-white hover:bg-primary-700 py-2 px-3 rounded-md transition-colors">
+                                            Kerjakan Tugas
+                                        </button>
+                                    ` : ''}
+                                `}
+                            </div>
+                        ` : ''}
+                        
+                        ${title === TaskStatus.InProgress ? `
+                            <div class="flex justify-between items-center mt-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                <button data-action="change-task-status" data-task-id="${task.id}" data-status="${TaskStatus.ToDo}" class="flex items-center space-x-1 text-xs font-semibold text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 p-1 rounded">
+                                    ${Icon('arrow-uturn-left', 'w-4 h-4')} <span>Kembali</span>
+                                </button>
+                                <button data-action="change-task-status" data-task-id="${task.id}" data-status="${TaskStatus.Done}" class="flex items-center space-x-1 text-xs font-semibold text-green-600 hover:text-green-800 dark:text-green-500 dark:hover:text-green-400 p-1 rounded">
+                                    ${Icon('check', 'w-4 h-4')} <span>Selesai</span>
+                                </button>
+                            </div>
+                        ` : ''}
+
+                        ${title === TaskStatus.Done ? `
+                             <div class="flex justify-start items-center mt-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                 <button data-action="change-task-status" data-task-id="${task.id}" data-status="${TaskStatus.InProgress}" class="flex items-center space-x-1 text-xs font-semibold text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 p-1 rounded">
+                                    ${Icon('arrow-uturn-left', 'w-4 h-4')} <span>Buka Lagi</span>
+                                </button>
+                            </div>
+                        ` : ''}
+                    </div>
+                `).join('')}
+            </div>
+        </div>
+    `;
+}
+
+function renderTaskCard(task, user) {
+    const priorityConfig = {
+        [TaskPriority.High]: { color: 'bg-red-500', text: 'Tinggi' },
+        [TaskPriority.Medium]: { color: 'bg-amber-500', text: 'Sedang' },
+        [TaskPriority.Low]: { color: 'bg-sky-500', text: 'Rendah' },
+    };
+    return `
+        <div class="bg-white dark:bg-slate-700 p-4 rounded-lg shadow border border-slate-200 dark:border-slate-600 relative">
+             <div class="absolute top-3 right-3 text-xs font-bold px-2 py-1 rounded-full text-white ${priorityConfig[task.priority].color}">${priorityConfig[task.priority].text}</div>
+            <h4 class="font-semibold text-slate-800 dark:text-slate-100 pr-16">${task.title}</h4>
+            <p class="text-sm text-slate-500 dark:text-slate-400 mt-1 truncate">${task.description}</p>
+            <div class="flex justify-between items-center mt-4">
+                ${user ? `
+                     <div class="flex items-center space-x-2" title="Ditugaskan kepada ${user.name}">
+                         <img src="${user.avatar}" alt="${user.name}" class="w-7 h-7 rounded-full" />
+                         <span class="text-xs font-medium text-slate-600 dark:text-slate-300 sm:hidden">${user.name.split(' ')[0]}</span>
+                         <span class="text-xs font-medium text-slate-600 dark:text-slate-300 hidden sm:block">${user.name}</span>
+                     </div>
+                ` : `<div class="text-xs text-slate-400 italic">Belum ditugaskan</div>`}
+                <span class="text-xs font-semibold text-red-500 whitespace-nowrap">${daysLeft(task.dueDate)}</span>
+            </div>
+        </div>
+    `;
+}
+
+function renderChatRoom(project) {
+    const { currentUser } = state;
+    const userMap = getUserMap();
+    return `
+        <div class="bg-white dark:bg-slate-800 rounded-lg shadow h-[calc(100vh-12rem)] flex flex-col">
+            <div class="p-4 border-b dark:border-slate-700">
+                <h2 class="text-xl font-bold text-slate-800 dark:text-slate-100">Ruang Diskusi</h2>
+            </div>
+            <div class="flex-1 p-4 overflow-y-auto space-y-4 custom-scrollbar">
+                ${project.chat.map(msg => {
+                    const user = userMap.get(msg.userId);
+                    const isCurrentUserMsg = msg.userId === currentUser.id;
+                    return `
+                        <div class="flex items-start gap-3 ${isCurrentUserMsg ? 'justify-end' : ''}">
+                            ${!isCurrentUserMsg && user ? `<img src="${user.avatar}" alt="${user.name}" class="w-9 h-9 rounded-full" />` : ''}
+                            <div class="max-w-md p-3 rounded-lg ${isCurrentUserMsg ? 'bg-primary-600 text-white' : 'bg-slate-100 dark:bg-slate-700 text-slate-800 dark:text-slate-200'}">
+                                ${!isCurrentUserMsg && user ? `<p class="font-semibold text-sm mb-1 text-primary-600 dark:text-primary-400">${user.name}</p>` : ''}
+                                <p>${msg.text}</p>
+                                <p class="text-xs mt-1 ${isCurrentUserMsg ? 'text-primary-200' : 'text-slate-400'}">${new Date(msg.timestamp).toLocaleTimeString('id-ID', { hour: '2-digit', minute:'2-digit' })}</p>
+                            </div>
+                            ${isCurrentUserMsg && user ? `<img src="${user.avatar}" alt="${user.name}" class="w-9 h-9 rounded-full" />` : ''}
+                        </div>
+                    `;
+                }).join('')}
+            </div>
+            <div class="p-4 border-t dark:border-slate-700">
+                <div class="relative">
+                    <input type="text" placeholder="Ketik pesan Anda..." class="w-full bg-slate-100 dark:bg-slate-700 text-slate-900 dark:text-slate-100 rounded-lg py-2 pl-4 pr-12 border-transparent focus:ring-primary-500 focus:border-primary-500" />
+                    <button class="absolute right-2 top-1/2 -translate-y-1/2 p-2 bg-primary-600 text-white rounded-md hover:bg-primary-700">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                            <path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a1 1 0 001.17-1.408l-7-14z" />
+                        </svg>
+                    </button>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+function renderFileStorage(project) {
+    const userMap = getUserMap();
+    return `
+        <div class="bg-white dark:bg-slate-800 rounded-lg shadow p-6">
+            <div class="flex justify-between items-center mb-6">
+                <h2 class="text-xl font-bold text-slate-800 dark:text-slate-100">Penyimpanan Berkas</h2>
+                <button class="bg-primary-600 text-white font-semibold py-2 px-4 rounded-lg shadow-md hover:bg-primary-700 transition-colors">Unggah Berkas</button>
+            </div>
+            <div class="overflow-x-auto">
+                <table class="w-full text-sm text-left text-slate-500 dark:text-slate-400">
+                    <thead class="text-xs text-slate-700 uppercase bg-slate-50 dark:bg-slate-700 dark:text-slate-300">
+                        <tr>
+                            <th scope="col" class="px-6 py-3">Nama Berkas</th>
+                            <th scope="col" class="px-6 py-3">Ukuran</th>
+                            <th scope="col" class="px-6 py-3">Diupload Oleh</th>
+                            <th scope="col" class="px-6 py-3">Tanggal</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${project.files.map(file => `
+                            <tr class="bg-white dark:bg-slate-800 border-b dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-600/50">
+                                <td class="px-6 py-4 font-medium text-slate-900 dark:text-white">
+                                    <div class="flex items-center">
+                                        ${Icon(getFileIconName(file.type), 'w-5 h-5 mr-3 text-slate-500 flex-shrink-0')}
+                                        <span>${file.name}</span>
+                                    </div>
+                                </td>
+                                <td class="px-6 py-4">${file.size}</td>
+                                <td class="px-6 py-4">${userMap.get(file.uploadedBy)?.name || 'Tidak diketahui'}</td>
+                                <td class="px-6 py-4">${formatDate(file.uploadDate)}</td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    `;
+}
+
+function renderTeamCalendar(project, date = new Date()) {
+    const year = date.getFullYear();
+    const month = date.getMonth();
+    const firstDay = new Date(year, month, 1);
+    const lastDay = new Date(year, month + 1, 0);
+    const daysInMonth = lastDay.getDate();
+    const startDayOfWeek = firstDay.getDay(); // 0 = Sunday
+
+    let grid = [];
+    for (let i = 0; i < startDayOfWeek; i++) grid.push(null);
+
+    for (let day = 1; day <= daysInMonth; day++) {
+        const dateString = new Date(Date.UTC(year, month, day)).toISOString().split('T')[0];
+        const events = [];
+        const mainDeadlineDateString = project.mainDeadline.split('T')[0];
+        if (mainDeadlineDateString === dateString) {
+            events.push({ title: `DEADLINE: ${project.taskTitle}`, date: project.mainDeadline, isMain: true });
+        }
+        project.tasks.forEach(task => {
+            if (task.dueDate === dateString) {
+                events.push({ title: task.title, date: task.dueDate, isMain: false });
+            }
+        });
+        grid.push({ day, events });
+    }
+
+    const getDeadlineColor = (dateString) => {
+        const days = daysLeft(dateString, true);
+        if (days < 7) return 'bg-red-500 text-white';
+        if (days <= 14) return 'bg-amber-500 text-white';
+        return 'bg-primary-500 text-white';
+    };
+
+    return `
+        <div class="bg-white dark:bg-slate-800 rounded-lg shadow p-6">
+            <div class="flex justify-between items-center mb-6">
+                <h2 class="text-xl font-bold text-slate-800 dark:text-slate-100">Kalender Tim</h2>
+                <div class="flex items-center space-x-2">
+                    <button data-action="calendar-prev" class="p-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-700">
+                        ${Icon('chevron-left', 'w-5 h-5')}
+                    </button>
+                    <span class="font-semibold text-lg w-32 text-center">${firstDay.toLocaleString('id-ID', { month: 'long' })} ${year}</span>
+                    <button data-action="calendar-next" class="p-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-700">
+                        ${Icon('chevron-right', 'w-5 h-5')}
+                    </button>
+                </div>
+            </div>
+            <div class="grid grid-cols-7 gap-1 text-center">
+                ${['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab'].map(day => `<div class="font-bold text-sm text-slate-500 dark:text-slate-400 p-2">${day}</div>`).join('')}
+                ${grid.map(day => `
+                    <div class="h-28 border border-slate-200 dark:border-slate-700 rounded-md p-1 overflow-y-auto custom-scrollbar ${day ? 'bg-white dark:bg-slate-800' : 'bg-slate-50 dark:bg-slate-800/50'}">
+                        ${day ? `
+                            <span class="font-semibold ${new Date().toDateString() === new Date(year, month, day.day).toDateString() ? 'bg-primary-600 text-white rounded-full px-2' : ''}">${day.day}</span>
+                            <div class="mt-1 space-y-1">
+                                ${day.events.map(event => `
+                                    <div class="text-xs p-1 rounded-md ${getDeadlineColor(event.date)} ${event.isMain ? 'font-bold' : ''} truncate" title="${event.title}">
+                                        ${event.title}
+                                    </div>
+                                `).join('')}
+                            </div>
+                        ` : ''}
+                    </div>
+                `).join('')}
+            </div>
+        </div>
+    `;
+}
+
+
+function renderModals() {
+    const { modal, modalData } = state;
+    if (!modal) return '';
+
+    const renderModalFrame = (title, content, isOpen = true) => {
+        if (!isOpen) return '';
+        return `
+            <div class="fixed inset-0 bg-black/60 z-50 flex justify-center items-center" data-action="close-modal">
+                <div class="bg-white dark:bg-slate-800 rounded-lg shadow-xl w-full max-w-lg m-4" data-action="modal-content">
+                    <div class="flex justify-between items-center p-4 border-b dark:border-slate-700">
+                        <h3 class="text-xl font-bold">${title}</h3>
+                        <button data-action="close-modal" class="p-1 rounded-full text-slate-500 hover:bg-slate-200 dark:text-slate-400 dark:hover:bg-slate-700">
+                            ${Icon('close', 'w-6 h-6')}
+                        </button>
+                    </div>
+                    ${content}
+                </div>
+            </div>
+        `;
+    };
+    
+    let modalContent = '';
+    
+    switch(modal) {
+        case 'createProject':
+            modalContent = renderModalFrame('Buat Proyek Baru', `
+                <form data-action="create-project">
+                    <div class="p-6 space-y-4">
+                        <div>
+                            <label for="courseName" class="block text-sm font-medium text-slate-700 dark:text-slate-300">Nama Mata Kuliah</label>
+                            <input type="text" name="courseName" required class="mt-1 block w-full rounded-md border-slate-300 dark:border-slate-600 shadow-sm focus:border-primary-500 focus:ring-primary-500 bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100" />
+                        </div>
+                        <div>
+                            <label for="taskTitle" class="block text-sm font-medium text-slate-700 dark:text-slate-300">Judul Tugas</label>
+                            <input type="text" name="taskTitle" required class="mt-1 block w-full rounded-md border-slate-300 dark:border-slate-600 shadow-sm focus:border-primary-500 focus:ring-primary-500 bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100" />
+                        </div>
+                        <div>
+                            <label for="description" class="block text-sm font-medium text-slate-700 dark:text-slate-300">Deskripsi Singkat</label>
+                            <textarea name="description" rows="3" class="mt-1 block w-full rounded-md border-slate-300 dark:border-slate-600 shadow-sm focus:border-primary-500 focus:ring-primary-500 bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100"></textarea>
+                        </div>
+                         <div>
+                            <label for="mainDeadline" class="block text-sm font-medium text-slate-700 dark:text-slate-300">Deadline Akhir</label>
+                            <input type="date" name="mainDeadline" required class="mt-1 block w-full rounded-md border-slate-300 dark:border-slate-600 shadow-sm focus:border-primary-500 focus:ring-primary-500 bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100" />
+                        </div>
+                    </div>
+                    <div class="bg-slate-50 dark:bg-slate-900/50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse rounded-b-lg">
+                        <button type="submit" class="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-primary-600 text-base font-medium text-white hover:bg-primary-700 sm:ml-3 sm:w-auto sm:text-sm">Buat Proyek</button>
+                        <button type="button" data-action="close-modal" class="mt-3 w-full inline-flex justify-center rounded-md border border-slate-300 dark:border-slate-600 shadow-sm px-4 py-2 bg-white dark:bg-slate-700 text-base font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-600 sm:mt-0 sm:w-auto sm:text-sm">Batal</button>
+                    </div>
+                </form>
+            `);
+            break;
+            
+        case 'joinProject':
+             modalContent = renderModalFrame('Gabung Proyek', `
+                <form data-action="join-project">
+                    <div class="p-6">
+                        <label for="inviteCode" class="block text-sm font-medium text-slate-700 dark:text-slate-300">Kode Undangan</label>
+                        <input type="text" name="inviteCode" required class="mt-1 block w-full rounded-md border-slate-300 dark:border-slate-600 shadow-sm focus:border-primary-500 focus:ring-primary-500 bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100 uppercase" placeholder="XXXXXX" />
+                        <p id="join-error" class="text-sm text-red-500 mt-2 hidden"></p>
+                    </div>
+                    <div class="bg-slate-50 dark:bg-slate-900/50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse rounded-b-lg">
+                        <button type="submit" class="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-primary-600 text-base font-medium text-white hover:bg-primary-700 sm:ml-3 sm:w-auto sm:text-sm">Gabung</button>
+                        <button type="button" data-action="close-modal" class="mt-3 w-full inline-flex justify-center rounded-md border border-slate-300 dark:border-slate-600 shadow-sm px-4 py-2 bg-white dark:bg-slate-700 text-base font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-600 sm:mt-0 sm:w-auto sm:text-sm">Batal</button>
+                    </div>
+                </form>
+            `);
+            break;
+            
+        case 'inviteCode':
+            modalContent = renderModalFrame('Proyek Berhasil Dibuat!', `
+                <div class="p-6 text-center">
+                    <p class="text-slate-600 dark:text-slate-300 mb-4">Bagikan kode berikut kepada teman-teman Anda untuk mengundang mereka ke proyek:</p>
+                    <div class="flex items-center justify-center space-x-2 bg-slate-100 dark:bg-slate-700 p-3 rounded-lg">
+                        <span class="text-2xl font-bold tracking-widest text-primary-600 dark:text-primary-400">${modalData.inviteCode}</span>
+                        <button data-action="copy-code" data-code="${modalData.inviteCode}" class="p-2 rounded-md hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors">
+                            ${Icon('clipboard', 'w-6 h-6')}
+                        </button>
+                    </div>
+                    <p id="copy-feedback" class="text-sm text-green-500 mt-2 hidden">Kode disalin!</p>
+                </div>
+                <div class="bg-slate-50 dark:bg-slate-900/50 px-4 py-3 sm:px-6 flex justify-end rounded-b-lg">
+                    <button type="button" data-action="close-modal" class="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-primary-600 text-base font-medium text-white hover:bg-primary-700 sm:w-auto sm:text-sm">Selesai</button>
+                </div>
+            `);
+            break;
+            
+        case 'addTask':
+            modalContent = renderModalFrame('Tambah Tugas Baru', `
+                <form data-action="add-task">
+                    <div class="p-6 space-y-4">
+                        <div>
+                            <label for="taskTitle" class="block text-sm font-medium text-slate-700 dark:text-slate-300">Judul Tugas</label>
+                            <input type="text" name="title" required class="mt-1 block w-full rounded-md border-slate-300 dark:border-slate-600 shadow-sm focus:border-primary-500 focus:ring-primary-500 bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100" />
+                        </div>
+                        <div>
+                            <label for="taskDescription" class="block text-sm font-medium text-slate-700 dark:text-slate-300">Deskripsi</label>
+                            <textarea name="description" rows="3" class="mt-1 block w-full rounded-md border-slate-300 dark:border-slate-600 shadow-sm focus:border-primary-500 focus:ring-primary-500 bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100"></textarea>
+                        </div>
+                         <div>
+                            <label for="taskDueDate" class="block text-sm font-medium text-slate-700 dark:text-slate-300">Deadline</label>
+                            <input type="date" name="dueDate" required class="mt-1 block w-full rounded-md border-slate-300 dark:border-slate-600 shadow-sm focus:border-primary-500 focus:ring-primary-500 bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100" />
+                        </div>
+                         <div>
+                            <label for="taskPriority" class="block text-sm font-medium text-slate-700 dark:text-slate-300">Prioritas</label>
+                            <select name="priority" class="mt-1 block w-full rounded-md border-slate-300 dark:border-slate-600 shadow-sm focus:border-primary-500 focus:ring-primary-500 bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100">
+                                <option value="${TaskPriority.High}">Tinggi</option>
+                                <option value="${TaskPriority.Medium}" selected>Sedang</option>
+                                <option value="${TaskPriority.Low}">Rendah</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="bg-slate-50 dark:bg-slate-900/50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse rounded-b-lg">
+                        <button type="submit" class="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-primary-600 text-base font-medium text-white hover:bg-primary-700 sm:ml-3 sm:w-auto sm:text-sm">Tambah Tugas</button>
+                        <button type="button" data-action="close-modal" class="mt-3 w-full inline-flex justify-center rounded-md border border-slate-300 dark:border-slate-600 shadow-sm px-4 py-2 bg-white dark:bg-slate-700 text-base font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-600 sm:mt-0 sm:w-auto sm:text-sm">Batal</button>
+                    </div>
+                </form>
+            `);
+            break;
+        
+        case 'editProject':
+            const p = modalData.project;
+            modalContent = renderModalFrame('Edit Proyek', `
+                <form data-action="edit-project" data-project-id="${p.id}">
+                    <div class="p-6 space-y-4">
+                        <div>
+                            <label for="courseName" class="block text-sm font-medium text-slate-700 dark:text-slate-300">Nama Mata Kuliah</label>
+                            <input type="text" name="courseName" required value="${p.courseName}" class="mt-1 block w-full rounded-md border-slate-300 dark:border-slate-600 shadow-sm bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100" />
+                        </div>
+                        <div>
+                            <label for="taskTitle" class="block text-sm font-medium text-slate-700 dark:text-slate-300">Judul Tugas</label>
+                            <input type="text" name="taskTitle" required value="${p.taskTitle}" class="mt-1 block w-full rounded-md border-slate-300 dark:border-slate-600 shadow-sm bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100" />
+                        </div>
+                        <div>
+                            <label for="description" class="block text-sm font-medium text-slate-700 dark:text-slate-300">Deskripsi Singkat</label>
+                            <textarea name="description" rows="3" class="mt-1 block w-full rounded-md border-slate-300 dark:border-slate-600 shadow-sm bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100">${p.description}</textarea>
+                        </div>
+                         <div>
+                            <label for="mainDeadline" class="block text-sm font-medium text-slate-700 dark:text-slate-300">Deadline Akhir</label>
+                            <input type="date" name="mainDeadline" required value="${new Date(p.mainDeadline).toISOString().split('T')[0]}" class="mt-1 block w-full rounded-md border-slate-300 dark:border-slate-600 shadow-sm bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100" />
+                        </div>
+                    </div>
+                    <div class="bg-slate-50 dark:bg-slate-900/50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse rounded-b-lg">
+                        <button type="submit" class="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-primary-600 text-base font-medium text-white hover:bg-primary-700 sm:ml-3 sm:w-auto sm:text-sm">Simpan Perubahan</button>
+                        <button type="button" data-action="close-modal" class="mt-3 w-full inline-flex justify-center rounded-md border border-slate-300 dark:border-slate-600 shadow-sm px-4 py-2 bg-white dark:bg-slate-700 sm:mt-0 sm:w-auto sm:text-sm">Batal</button>
+                    </div>
+                </form>
+            `);
+            break;
+
+        case 'deleteProject':
+            const projectToDelete = modalData.project;
+            modalContent = renderModalFrame('Hapus Proyek', `
+                <div class="p-6">
+                    <p class="text-slate-600 dark:text-slate-300">
+                        Apakah Anda yakin ingin menghapus proyek <span class="font-bold text-slate-800 dark:text-slate-100">${projectToDelete.taskTitle}</span>? Tindakan ini tidak dapat diurungkan.
+                    </p>
+                </div>
+                <div class="bg-slate-50 dark:bg-slate-900/50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse rounded-b-lg">
+                    <button data-action="confirm-delete-project" data-project-id="${projectToDelete.id}" type="button" class="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-red-600 text-base font-medium text-white hover:bg-red-700 sm:ml-3 sm:w-auto sm:text-sm">
+                        Hapus
+                    </button>
+                    <button type="button" data-action="close-modal" class="mt-3 w-full inline-flex justify-center rounded-md border border-slate-300 dark:border-slate-600 shadow-sm px-4 py-2 bg-white dark:bg-slate-700 sm:mt-0 sm:w-auto sm:text-sm">
+                        Batal
+                    </button>
+                </div>
+            `);
+            break;
+            
+        case 'profile':
+            const user = state.currentUser;
+            modalContent = renderModalFrame('Profil Saya', `
+                <form data-action="update-profile">
+                    <div class="p-6 space-y-4">
+                        <div class="flex flex-col items-center space-y-4">
+                            <label for="profile-avatar-input" class="cursor-pointer group relative">
+                                <img id="profile-avatar-preview" src="${user.avatar}" alt="${user.name}" class="w-24 h-24 rounded-full object-cover ring-2 ring-offset-2 ring-primary-500 dark:ring-offset-slate-800" />
+                                <div class="absolute inset-0 bg-black/50 rounded-full flex items-center justify-center text-white opacity-0 group-hover:opacity-100 transition-opacity">
+                                    Ubah
+                                </div>
+                            </label>
+                            <input type="file" id="profile-avatar-input" name="avatar" class="hidden" accept="image/*" />
+                        </div>
+                        <div>
+                            <label for="userName" class="block text-sm font-medium text-slate-700 dark:text-slate-300">Nama Lengkap</label>
+                            <input type="text" name="name" value="${user.name}" required class="mt-1 block w-full rounded-md border-slate-300 dark:border-slate-600 shadow-sm bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100" />
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-slate-700 dark:text-slate-300">NIM</label>
+                            <p class="mt-1 px-3 py-2 bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 rounded-md text-sm">${user.nim}</p>
+                        </div>
+                         <div>
+                            <label class="block text-sm font-medium text-slate-700 dark:text-slate-300">Email</label>
+                            <p class="mt-1 px-3 py-2 bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 rounded-md text-sm">${user.email}</p>
+                        </div>
+                    </div>
+                    <div class="bg-slate-50 dark:bg-slate-900/50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse rounded-b-lg">
+                        <button type="submit" class="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-primary-600 text-base font-medium text-white hover:bg-primary-700 sm:ml-3 sm:w-auto sm:text-sm">Simpan</button>
+                        <button type="button" data-action="close-modal" class="mt-3 w-full inline-flex justify-center rounded-md border border-slate-300 dark:border-slate-600 shadow-sm px-4 py-2 bg-white dark:bg-slate-700 sm:mt-0 sm:w-auto sm:text-sm">Batal</button>
+                    </div>
+                </form>
+            `);
+            break;
+            
+        case 'settings':
+            modalContent = renderModalFrame('Pengaturan', `
+                <div class="p-6">
+                    <div class="flex justify-between items-center">
+                        <span class="font-medium text-slate-700 dark:text-slate-300">Mode Gelap</span>
+                        <button data-action="toggle-dark-mode" class="relative inline-flex flex-shrink-0 h-6 w-11 border-2 border-transparent rounded-full cursor-pointer transition-colors ease-in-out duration-200 focus:outline-none ${state.isDarkMode ? 'bg-primary-600' : 'bg-slate-300'}">
+                            <span class="inline-block w-5 h-5 rounded-full bg-white shadow-lg transform ring-0 transition ease-in-out duration-200 ${state.isDarkMode ? 'translate-x-5' : 'translate-x-0'}"></span>
+                        </button>
+                    </div>
+                </div>
+                 <div class="bg-slate-50 dark:bg-slate-900/50 px-4 py-3 sm:px-6 flex justify-end rounded-b-lg">
+                    <button type="button" data-action="close-modal" class="rounded-md border border-slate-300 dark:border-slate-600 shadow-sm px-4 py-2 bg-white dark:bg-slate-700 font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-600 sm:text-sm">
+                        Tutup
+                    </button>
+                </div>
+            `);
+            break;
+    }
+    return modalContent;
+}
+
+
+// =================================================================================
+// MAIN RENDER FUNCTION
+// =================================================================================
+
+function renderApp() {
+    const { currentUser, selectedProjectId, projects } = state;
+    
+    let mainContent = '';
+    
+    if (!currentUser) {
+        mainContent = renderAuthScreen();
+    } else {
+        const selectedProject = projects.find(p => p.id === selectedProjectId);
+        const appShell = `
+            <div class="min-h-screen bg-slate-100 dark:bg-slate-950 text-slate-800 dark:text-slate-200 transition-colors duration-300">
+                ${renderHeader()}
+                <main>
+                    ${selectedProject ? renderProjectScreen(selectedProject) : renderDashboardScreen()}
+                </main>
+                <div id="modal-container">
+                    ${renderModals()}
+                </div>
+            </div>
+        `;
+        mainContent = appShell;
+    }
+    
+    appContainer.innerHTML = mainContent;
+}
+
+// =================================================================================
+// EVENT HANDLERS & LOGIC
+// =================================================================================
+
+function handleAuth(formData) {
+    const view = document.getElementById('auth-form').dataset.view;
+    const nim = formData.get('nim')?.trim();
+    const password = formData.get('password')?.trim();
+
+    if (view === 'login') {
+        const user = state.allUsers.find(u => u.nim === nim && u.password === password);
+        if (user) {
+            state.currentUser = user;
+            state.authMessage = null;
+        } else {
+            state.authMessage = { type: 'error', text: 'NIM atau password salah.' };
+        }
+    } else { // Register view
+        const name = formData.get('name')?.trim();
+        const email = formData.get('email')?.trim();
+
+        if (state.allUsers.some(u => u.nim === nim)) {
+            state.authMessage = { type: 'error', text: 'NIM sudah terdaftar.' };
+        } else {
+            const newUser = {
+                id: `u${Date.now()}`,
+                name, nim, email, password,
+                avatar: `https://i.pravatar.cc/150?u=${Date.now()}`
+            };
+            state.allUsers.push(newUser);
+            saveToStorage(USERS_STORAGE_KEY, state.allUsers);
+            
+            state.authView = 'login';
+            state.authMessage = { type: 'success', text: 'Registrasi berhasil! Silakan masuk.' };
+        }
+    }
+    renderApp();
+}
+
+function handleLogout() {
+    state.currentUser = null;
+    state.selectedProjectId = null;
+    renderApp();
+}
+
+function handleCreateProject(formData) {
+    if (!state.currentUser) return;
+    const inviteCode = Math.random().toString(36).substring(2, 8).toUpperCase();
+    const newProject = {
+        courseName: formData.get('courseName'),
+        taskTitle: formData.get('taskTitle'),
+        description: formData.get('description'),
+        mainDeadline: new Date(formData.get('mainDeadline')).toISOString(),
+        id: `p${Date.now()}`,
+        inviteCode,
+        adminId: state.currentUser.id,
+        members: [state.currentUser],
+        tasks: [], chat: [], files: [],
+    };
+    state.projects.push(newProject);
+    saveToStorage(PROJECTS_STORAGE_KEY, state.projects);
+    state.modal = 'inviteCode';
+    state.modalData = { inviteCode };
+    renderApp();
+}
+
+function handleJoinProject(inviteCode) {
+    if (!state.currentUser) return;
+    const projectToJoin = state.projects.find(p => p.inviteCode.toUpperCase() === inviteCode.toUpperCase());
+    const errorEl = document.getElementById('join-error');
+
+    if (!projectToJoin) {
+        errorEl.textContent = 'Kode undangan tidak valid.';
+        errorEl.classList.remove('hidden');
+        return;
+    }
+    if (projectToJoin.members.some(m => m.id === state.currentUser.id)) {
+        errorEl.textContent = 'Anda sudah menjadi anggota proyek ini.';
+        errorEl.classList.remove('hidden');
+        return;
+    }
+
+    projectToJoin.members.push(state.currentUser);
+    saveToStorage(PROJECTS_STORAGE_KEY, state.projects);
+    state.modal = null;
+    renderApp();
+}
+
+function handleEditProject(formData, projectId) {
+    const project = state.projects.find(p => p.id === projectId);
+    if (!project) return;
+    project.courseName = formData.get('courseName');
+    project.taskTitle = formData.get('taskTitle');
+    project.description = formData.get('description');
+    project.mainDeadline = new Date(formData.get('mainDeadline')).toISOString();
+    saveToStorage(PROJECTS_STORAGE_KEY, state.projects);
+    state.modal = null;
+    renderApp();
+}
+
+function handleDeleteProject(projectId) {
+    state.projects = state.projects.filter(p => p.id !== projectId);
+    if (state.selectedProjectId === projectId) {
+        state.selectedProjectId = null;
+    }
+    saveToStorage(PROJECTS_STORAGE_KEY, state.projects);
+    state.modal = null;
+    renderApp();
+}
+
+function handleUpdateProfile(formData) {
+    if (!state.currentUser) return;
+    const newName = formData.get('name');
+    const newAvatarSrc = document.getElementById('profile-avatar-preview').src;
+    
+    const user = state.allUsers.find(u => u.id === state.currentUser.id);
+    user.name = newName;
+    user.avatar = newAvatarSrc;
+
+    state.currentUser.name = newName;
+    state.currentUser.avatar = newAvatarSrc;
+
+    state.projects.forEach(p => {
+        const member = p.members.find(m => m.id === user.id);
+        if (member) {
+            member.name = newName;
+            member.avatar = newAvatarSrc;
+        }
+    });
+    
+    saveToStorage(USERS_STORAGE_KEY, state.allUsers);
+    saveToStorage(PROJECTS_STORAGE_KEY, state.projects);
+    state.modal = null;
+    renderApp();
+}
+
+function handleAddTask(formData) {
+    if (!state.selectedProjectId) return;
+    const newTask = {
+        title: formData.get('title'),
+        description: formData.get('description'),
+        dueDate: formData.get('dueDate'),
+        priority: formData.get('priority'),
+        id: `t${Date.now()}`,
+        assigneeId: null,
+        status: TaskStatus.ToDo,
+    };
+    const project = state.projects.find(p => p.id === state.selectedProjectId);
+    project.tasks.push(newTask);
+    saveToStorage(PROJECTS_STORAGE_KEY, state.projects);
+    state.modal = null;
+    renderApp();
+}
+
+function handleTaskStatusChange(taskId, newStatus) {
+    const project = state.projects.find(p => p.tasks.some(t => t.id === taskId));
+    if (project) {
+        const task = project.tasks.find(t => t.id === taskId);
+        task.status = newStatus;
+        saveToStorage(PROJECTS_STORAGE_KEY, state.projects);
+        setProjectView(state.currentProjectView);
+    }
+}
+
+function handleAssignTask(taskId, assigneeId) {
+    const project = state.projects.find(p => p.tasks.some(t => t.id === taskId));
+    if (project) {
+        const task = project.tasks.find(t => t.id === taskId);
+        task.assigneeId = assigneeId;
+        task.status = TaskStatus.InProgress;
+        saveToStorage(PROJECTS_STORAGE_KEY, state.projects);
+        setProjectView(state.currentProjectView);
+    }
+}
+
+
+function toggleDarkMode() {
+    state.isDarkMode = !state.isDarkMode;
+    if (state.isDarkMode) {
+        document.documentElement.classList.add('dark');
+    } else {
+        document.documentElement.classList.remove('dark');
+    }
+    // Re-render to update the button in the settings modal if it's open
+    if (state.modal === 'settings') {
+        renderApp();
+    }
+}
+
+function setProjectView(view) {
+    state.currentProjectView = view;
+    const project = state.projects.find(p => p.id === state.selectedProjectId);
+    if (!project) return;
+    
+    document.getElementById('project-screen').dataset.activeView = view;
+    
+    const contentDiv = document.getElementById('project-view-content');
+    const navDiv = document.querySelector('#project-screen nav');
+    
+    let viewContent;
+    switch(view) {
+        case 'dashboard': viewContent = renderProjectDashboardView(project); break;
+        case 'tasks': viewContent = renderTaskBoard(project); break;
+        case 'chat': viewContent = renderChatRoom(project); break;
+        case 'files': viewContent = renderFileStorage(project); break;
+        case 'calendar': viewContent = renderTeamCalendar(project); break;
+        default: viewContent = renderProjectDashboardView(project);
+    }
+    contentDiv.innerHTML = viewContent;
+    navDiv.innerHTML = renderProjectNav(view);
+}
+
+// =================================================================================
+// GLOBAL EVENT LISTENER (EVENT DELEGATION)
+// =================================================================================
+
+appContainer.addEventListener('click', (e) => {
+    const target = e.target;
+    const actionTarget = target.closest('[data-action]');
+    if (!actionTarget) return;
+
+    const { action, modal, projectId, view, taskId, status, code } = actionTarget.dataset;
+
+    if (actionTarget.tagName === 'A') e.preventDefault();
+
+    switch(action) {
+        case 'toggle-auth-view':
+            state.authView = state.authView === 'login' ? 'register' : 'login';
+            state.authMessage = null;
+            renderApp();
+            break;
+        case 'logout':
+            handleLogout();
+            break;
+        case 'back-to-dashboard':
+            state.selectedProjectId = null;
+            renderApp();
+            break;
+        case 'select-project':
+            state.selectedProjectId = projectId;
+            state.currentProjectView = 'dashboard';
+            renderApp();
+            break;
+        case 'open-modal':
+            state.modal = modal;
+            if(projectId) {
+                state.modalData = { project: state.projects.find(p => p.id === projectId) };
+            }
+            renderApp();
+            break;
+        case 'close-modal':
+            state.modal = null;
+            state.modalData = {};
+            renderApp();
+            break;
+        case 'toggle-dark-mode':
+            toggleDarkMode();
+            break;
+        case 'toggle-user-menu':
+            document.getElementById('user-menu').classList.toggle('hidden');
+            break;
+        case 'toggle-project-menu':
+            document.querySelectorAll('[id^="project-menu-"]').forEach(menu => {
+                if(menu.id !== `project-menu-${projectId}`) menu.classList.add('hidden');
+            });
+            document.getElementById(`project-menu-${projectId}`).classList.toggle('hidden');
+            e.stopPropagation();
+            break;
+        case 'set-project-view':
+            setProjectView(view);
+            break;
+        case 'change-task-status':
+            handleTaskStatusChange(taskId, status);
+            break;
+        case 'assign-task': {
+            const select = document.querySelector(`select[data-task-id="${taskId}"]`);
+            handleAssignTask(taskId, select.value);
+            break;
+        }
+        case 'assign-task-self':
+            handleAssignTask(taskId, state.currentUser.id);
+            break;
+        case 'calendar-prev':
+        case 'calendar-next': {
+            const project = state.projects.find(p => p.id === state.selectedProjectId);
+            const calendarEl = actionTarget.closest('.bg-white');
+            const dateParts = calendarEl.querySelector('span.w-32').textContent.split(' ');
+            const monthName = dateParts[0];
+            const year = parseInt(dateParts[1]);
+            const monthIndex = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'].indexOf(monthName);
+            const newMonth = action === 'calendar-prev' ? monthIndex - 1 : monthIndex + 1;
+            const newDate = new Date(year, newMonth, 1);
+            calendarEl.outerHTML = renderTeamCalendar(project, newDate);
+            break;
+        }
+        case 'copy-code':
+            navigator.clipboard.writeText(code).then(() => {
+                const feedback = document.getElementById('copy-feedback');
+                const iconButton = actionTarget.querySelector('svg');
+                iconButton.outerHTML = Icon('check', 'w-6 h-6 text-green-500');
+                feedback.classList.remove('hidden');
+                setTimeout(() => {
+                    feedback.classList.add('hidden');
+                    actionTarget.innerHTML = Icon('clipboard', 'w-6 h-6');
+                }, 2000);
+            });
+            break;
+        case 'confirm-delete-project':
+            handleDeleteProject(projectId);
+            break;
+    }
+});
+
+document.body.addEventListener('click', (e) => {
+    if (!e.target.closest('[data-action="toggle-user-menu"], #user-menu')) {
+        document.getElementById('user-menu')?.classList.add('hidden');
+    }
+    if (!e.target.closest('[data-action="toggle-project-menu"]')) {
+        document.querySelectorAll('[id^="project-menu-"]').forEach(menu => menu.classList.add('hidden'));
+    }
+});
+
+appContainer.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const form = e.target;
+    const action = form.dataset.action;
+    const formData = new FormData(form);
+
+    switch(action) {
+        case 'auth-form':
+            handleAuth(formData);
+            break;
+        case 'create-project':
+            handleCreateProject(formData);
+            break;
+        case 'join-project':
+            handleJoinProject(formData.get('inviteCode'));
+            break;
+        case 'add-task':
+            handleAddTask(formData);
+            break;
+        case 'edit-project':
+            handleEditProject(formData, form.dataset.projectId);
+            break;
+        case 'update-profile':
+            handleUpdateProfile(formData);
+            break;
+    }
+});
+
+appContainer.addEventListener('change', (e) => {
+    const target = e.target;
+    if (target.id === 'profile-avatar-input' && target.files && target.files[0]) {
+        const file = target.files[0];
+        const reader = new FileReader();
+        reader.onload = (event) => {
+            document.getElementById('profile-avatar-preview').src = event.target.result;
+        };
+        reader.readAsDataURL(file);
+    }
+});
+
+// =================================================================================
+// INITIALIZATION
+// =================================================================================
+renderApp();
+
+});
